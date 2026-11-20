@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Roblox Script Dumper</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--tx:#14161f;--mut:#6a7085;--ac:#5b5bf0;--bd:#e2e5ef;--code:#0f1320;--codetx:#d7dcf5;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1017;--card:#171a24;--tx:#eceefa;--mut:#8f95ad;--ac:#8083ff;--bd:#262b3a}}
+:root[data-theme="dark"]{--bg:#0e1017;--card:#171a24;--tx:#eceefa;--mut:#8f95ad;--ac:#8083ff;--bd:#262b3a}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:720px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:22px;margin:4px 0 2px}
+.sub{color:var(--mut);margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px;margin-bottom:14px}
+h2{font-size:15px;margin:0 0 4px}
+.step{display:inline-block;background:var(--ac);color:#fff;border-radius:99px;width:22px;height:22px;text-align:center;font-size:13px;line-height:22px;margin-right:6px}
+p.h{color:var(--mut);margin:0 0 10px;font-size:13.5px}
+pre{background:var(--code);color:var(--codetx);border-radius:10px;padding:12px;margin:0 0 10px;font-size:12px;line-height:1.45;max-height:220px;overflow:auto}
+textarea{width:100%;height:110px;border:1px solid var(--bd);border-radius:10px;padding:10px;background:var(--bg);color:var(--tx);font:12px ui-monospace,Menlo,monospace;resize:vertical}
+button,.btn{background:var(--ac);color:#fff;border:0;border-radius:10px;padding:10px 14px;font:600 14px system-ui,sans-serif;cursor:pointer}
+button.sec,.btn.sec{background:transparent;color:var(--ac);border:1px solid var(--bd)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input[type=file]{display:none}
+input[type=search]{flex:1;min-width:120px;border:1px solid var(--bd);border-radius:10px;padding:9px 10px;background:var(--bg);color:var(--tx);font-size:14px}
+#list{max-height:300px;overflow:auto;margin-top:10px;border:1px solid var(--bd);border-radius:10px}
+.it{padding:7px 10px;border-bottom:1px solid var(--bd);font-size:12.5px;display:flex;gap:8px;align-items:baseline}
+.it:last-child{border-bottom:0}
+.tag{font-size:10.5px;padding:1px 6px;border-radius:99px;background:var(--bd);color:var(--mut);flex:none}
+.pth{word-break:break-all}
+.msg{font-size:13px;color:var(--mut);margin-top:8px}
+.err{color:#d6455d}
+</style>
+</head>
+<body>
+<main>
+<h1>Roblox Script Dumper</h1>
+<p class="sub">Analise todos os LocalScripts e ModuleScripts e baixe tudo em um único ZIP.</p>
+
+<section class="card">
+<h2><span class="step">1</span>Execute este script no jogo</h2>
+<p class="h">Ele lê todos os LocalScripts e ModuleScripts (inclusive os carregados e os fora da árvore), salva <b>ScriptDump.json</b> no workspace do executor e copia o conteúdo para a área de transferência.</p>
+<pre id="lua"></pre>
+<div class="row"><button id="copyLua">Copiar script</button></div>
+</section>
+
+<section class="card">
+<h2><span class="step">2</span>Envie o resultado para o site</h2>
+<p class="h">Cole o conteúdo copiado ou escolha o arquivo ScriptDump.json.</p>
+<textarea id="paste" placeholder="Cole o JSON aqui…"></textarea>
+<div class="row" style="margin-top:8px">
+<label class="btn sec" for="file">Escolher arquivo</label>
+<input type="file" id="file" accept=".json,.txt,application/json,text/plain">
+<button id="load">Analisar</button>
+</div>
+<div id="status" class="msg"></div>
+</section>
+
+<section class="card" id="res" hidden>
+<h2><span class="step">3</span>Baixe tudo junto</h2>
+<p class="h" id="info"></p>
+<div class="row">
+<button id="zip">Baixar tudo (.zip)</button>
+<input type="search" id="q" placeholder="Filtrar scripts…">
+</div>
+<div id="list"></div>
+<div id="zmsg" class="msg"></div>
+</section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+var LUA = [
+'local HttpService = game:GetService("HttpService")',
+'local out = {game = tostring(game.Name), placeId = game.PlaceId, scripts = {}}',
+'local seen = {}',
+'',
+'local function getSource(s)',
+'  local ok, src = pcall(function() return s.Source end)',
+'  if ok and type(src) == "string" and #src > 0 then return src end',
+'  if decompile then',
+'    local ok2, d = pcall(decompile, s)',
+'    if ok2 and type(d) == "string" then return d end',
+'  end',
+'  return "-- nao foi possivel ler o codigo"',
+'end',
+'',
+'local function add(s)',
+'  if seen[s] then return end',
+'  seen[s] = true',
+'  local ok, isScript = pcall(function()',
+'    return s:IsA("LocalScript") or s:IsA("ModuleScript")',
+'  end)',
+'  if not (ok and isScript) then return end',
+'  local parts, o = {}, s',
+'  while o and o ~= game do',
+'    table.insert(parts, 1, o.Name)',
+'    o = o.Parent',
+'  end',
+'  if o ~= game then table.insert(parts, 1, "nil") end',
+'  table.insert(out.scripts, {path = parts, class = s.ClassName, source = getSource(s)})',
+'  if #out.scripts % 25 == 0 then task.wait() end',
+'end',
+'',
+'for _, s in ipairs(game:GetDescendants()) do add(s) end',
+'if getnilinstances then for _, s in ipairs(getnilinstances()) do add(s) end end',
+'if getloadedmodules then for _, s in ipairs(getloadedmodules()) do add(s) end end',
+'if getscripts then for _, s in ipairs(getscripts()) do add(s) end end',
+'',
+'local json = HttpService:JSONEncode(out)',
+'if writefile then pcall(writefile, "ScriptDump.json", json) end',
+'if setclipboard then setclipboard(json) end',
+'print("Scripts encontrados: " .. #out.scripts)'
+].join('\n');
+document.getElementById('lua').textContent = LUA;
+
+var $ = function(id){return document.getElementById(id)};
+var data = null;
+
+$('copyLua').onclick = function(){
+  var b = $('copyLua');
+  var done = function(t){b.textContent = t; setTimeout(function(){b.textContent='Copiar script'},1600)};
+  try{ navigator.clipboard.writeText(LUA).then(function(){done('Copiado!')},function(){fallback()}); }catch(e){fallback()}
+  function fallback(){
+    var r = document.createRange(); r.selectNodeContents($('lua'));
+    var s = getSelection(); s.removeAllRanges(); s.addRange(r); done('Selecionado — copie');
+  }
+};
+
+function setStatus(t, err){ var s=$('status'); s.textContent=t; s.className='msg'+(err?' err':''); }
+
+function clean(n){ return String(n).replace(/[\\\/:*?"<>|\x00-\x1f]/g,'_').replace(/^\.+$/,'_') || '_'; }
+
+function buildFiles(){
+  var used = {}, files = [];
+  data.scripts.forEach(function(s){
+    var parts = (Array.isArray(s.path) ? s.path : String(s.path).split('.')).map(clean);
+    var ext = s.class === 'LocalScript' ? '.client.lua' : '.lua';
+    var base = parts.join('/'), full = base + ext, n = 2;
+    while(used[full.toLowerCase()]){ full = base + ' (' + (n++) + ')' + ext; }
+    used[full.toLowerCase()] = 1;
+    files.push({path: full, cls: s.class, src: s.source || ''});
+  });
+  return files;
+}
+
+var files = [];
+function render(){
+  var q = $('q').value.toLowerCase(), l = $('list');
+  l.innerHTML = '';
+  files.filter(function(f){return f.path.toLowerCase().indexOf(q) > -1}).forEach(function(f){
+    var d = document.createElement('div'); d.className='it';
+    var t = document.createElement('span'); t.className='tag'; t.textContent = f.cls === 'LocalScript' ? 'Local' : 'Module';
+    var p = document.createElement('span'); p.className='pth'; p.textContent = f.path;
+    d.appendChild(t); d.appendChild(p); l.appendChild(d);
+  });
+}
+
+function parse(text){
+  try{
+    var j = JSON.parse(text.trim());
+    if(!j || !Array.isArray(j.scripts)) throw new Error('formato');
+    data = j; files = buildFiles();
+    var loc = files.filter(function(f){return f.cls==='LocalScript'}).length;
+    $('info').textContent = (j.game ? j.game + ' — ' : '') + files.length + ' scripts (' + loc + ' LocalScripts, ' + (files.length-loc) + ' ModuleScripts).';
+    $('res').hidden = false; render();
+    setStatus('Análise concluída.');
+    $('res').scrollIntoView({behavior:'smooth'});
+  }catch(e){
+    setStatus('Não consegui ler esse conteúdo. Cole o JSON completo gerado pelo script.', true);
+  }
+}
+
+$('load').onclick = function(){ parse($('paste').value); };
+$('paste').addEventListener('paste', function(){ setTimeout(function(){ if($('paste').value.length>2) parse($('paste').value); },50); });
+$('file').onchange = function(e){
+  var f = e.target.files[0]; if(!f) return;
+  var r = new FileReader();
+  r.onload = function(){ $('paste').value = ''; parse(String(r.result)); };
+  r.readAsText(f);
+};
+$('q').oninput = render;
+
+$('zip').onclick = async function(){
+  var zm = $('zmsg'); zm.className='msg'; zm.textContent='Gerando ZIP…';
+  try{
+    if(typeof JSZip === 'undefined') throw new Error('jszip');
+    var z = new JSZip();
+    files.forEach(function(f){ z.file(f.path, f.src); });
+    var blob = await z.generateAsync({type:'blob', compression:'DEFLATE'});
+    var dl = (window.claude && claude.use) ? await claude.use('downloads') : null;
+    var name = clean(data.game || 'roblox') + '_scripts.zip';
+    if(dl){
+      await dl.save({filename:name, data:blob});
+      zm.textContent = 'ZIP pronto: ' + files.length + ' arquivos.';
+    }else{
+      var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      zm.textContent = 'ZIP gerado: ' + files.length + ' arquivos.';
+    }
+  }catch(e){
+    if(e && e.code === 'declined'){ zm.textContent = 'Download cancelado.'; return; }
+    zm.className='msg err'; zm.textContent = 'Não foi possível baixar o ZIP aqui. Abra a página no navegador e tente de novo.';
+  }
+};
+</script>
+</body>
+</html>
